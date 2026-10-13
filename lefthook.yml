@@ -1,0 +1,15 @@
+pre-commit:
+  jobs:
+    - name: Check
+      run: just check-all
+      stage_fixed: true
+
+pre-push:
+  jobs:
+    - name: Unit Tests
+      run: just test-all --unit
+
+commit-msg:
+  jobs:
+    - name: Lint title
+      run: just lint-title {1}

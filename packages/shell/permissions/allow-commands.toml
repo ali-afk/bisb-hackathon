@@ -1,0 +1,10 @@
+[[permission]]
+identifier = "allow-commands"
+description = "Enables the frontend to invoke all commands"
+commands.allow = [
+  "app_metadata",
+  "write_settings",
+  "write_settings_field",
+  "read_settings",
+  "read_settings_field",
+]

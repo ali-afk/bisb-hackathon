@@ -1,0 +1,144 @@
+#[macro_export]
+macro_rules! app_settings {
+    ( $( $field:ident: $variant:ident ($type:ty) ),+ $(,)? ) => {
+        /// Persisted user settings. Backed by tauri-plugin-store (settings.json).
+        /// Defaults written on first access via if_empty_write_default().
+        #[derive(Deserialize, Serialize, Clone, Type, Copy, Default)]
+        pub struct AppSettings {
+            $(
+                pub $field: $type,
+            )+
+        }
+
+        /// IPC-compatible enum identifying which setting field to read/write.
+        /// Use `as_ref()` to get the lowercase store key.
+        /// TS type: `"Theme" | "Resolution" | "Fullscreen"`.
+        #[derive(Deserialize, Serialize, Clone, Type, Display, AsRefStr, Copy, strum::EnumString, Debug, PartialEq)]
+        #[strum(serialize_all = "lowercase")]
+        pub enum AppSettingsKeyKind {
+            $(
+                $variant,
+            )+
+        }
+
+        /// A tagged union of a single setting value, used by read_settings_field
+        /// and write_settings_field IPC commands. Exactly one variant is set.
+        /// TS type: `{ Theme: Theme } | { Resolution: Resolution } | { Fullscreen: boolean }`.
+        #[derive(Deserialize, Serialize, Clone, Type)]
+        pub enum AppSettingsKey {
+            $(
+                $variant($type),
+            )+
+        }
+
+        impl AppSettingsKey {
+            pub fn kind(&self) -> AppSettingsKeyKind {
+                match self {
+                    $(
+                        Self::$variant(_) => AppSettingsKeyKind::$variant,
+                    )+
+                }
+            }
+
+            pub fn to_json_value(&self) -> Result<serde_json::Value, AppError> {
+                let val = match self {
+                    $(
+                        AppSettingsKey::$variant(val) => serde_json::to_value(val),
+                    )+
+                };
+                val.map_err(|e| AppError::Config(e.to_string()))
+            }
+
+            pub fn from_json_value(
+                kind: AppSettingsKeyKind,
+                val: Value,
+            ) -> Result<AppSettingsKey, AppError> {
+                fn parse<T: serde::de::DeserializeOwned>(
+                    kind: &AppSettingsKeyKind,
+                    val: Value,
+                ) -> Result<T, AppError> {
+                    serde_json::from_value(val)
+                        .map_err(|e| AppError::Config(format!("Setting '{kind}' is invalid: {e}")))
+                }
+
+                match kind {
+                    $(
+                        AppSettingsKeyKind::$variant => Ok(Self::$variant(parse(&kind, val)?)),
+                    )+
+                }
+            }
+        }
+    };
+}
+
+/// Generates `AppError` (typed IPC error enum), `AppErrorKind` (discriminant)
+/// and `AppError::kind()` from a single variant list.
+///
+/// Errors serialize as `{"type": "Config"|"Validation", "data": string}`
+/// via `#[serde(tag = "type", content = "data")]`.
+///
+/// # Forms
+/// ```ignore
+/// // Shorthand — inner type defaults to String
+/// app_error! { Config, Validation }
+///
+/// // Full — explicit inner types
+/// app_error! { Config(String), Validation(CustomType) }
+/// ```
+#[macro_export]
+macro_rules! app_error {
+    // Full form with per-variant inner types
+    ( $( $variant:ident ($type:ty) ),+ $(,)? ) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, Type, thiserror::Error)]
+        #[serde(tag = "type", content = "data")]
+        pub enum AppError {
+            $(
+                #[error("{0}")]
+                $variant($type),
+            )+
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum AppErrorKind {
+            $(
+                $variant,
+            )+
+        }
+
+        impl AppError {
+            pub fn kind(&self) -> AppErrorKind {
+                match self {
+                    $(
+                        Self::$variant(_) => AppErrorKind::$variant,
+                    )+
+                }
+            }
+        }
+    };
+    // Shorthand: defaults to String
+    ( $( $variant:ident ),+ $(,)? ) => {
+        app_error!($( $variant(String) ),+);
+    };
+}
+/// Generates `From<T> for AppError` impls mapping external error types to
+/// `AppError::Config`.
+///
+/// # Example
+/// ```ignore
+/// to_app_error!(std::io::Error, serde_json::Error);
+/// // Expands to:
+/// // impl From<std::io::Error> for AppError { ... }
+/// // impl From<serde_json::Error> for AppError { ... }
+/// ```
+#[macro_export]
+macro_rules! to_app_error {
+    ( $( $type:ty ),+ ) => {
+        $(
+            impl From<$type> for AppError {
+                fn from(e: $type) -> Self {
+                    AppError::Config(e.to_string())
+                }
+            }
+        )+
+    }
+}

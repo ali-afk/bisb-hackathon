@@ -1,0 +1,11 @@
+# Build output and package storage
+node_modules/
+.out/
+.cache/
+.svelte-kit/
+
+# Backups & Secrets
+*.bak
+.env
+.env.*
+!.env.example
